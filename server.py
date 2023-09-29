@@ -1,5 +1,6 @@
 #  coding: utf-8 
 import socketserver
+import os
 
 # Copyright 2013 Abram Hindle, Eddie Antonio Santos
 # 
@@ -31,8 +32,89 @@ class MyWebServer(socketserver.BaseRequestHandler):
     
     def handle(self):
         self.data = self.request.recv(1024).strip()
-        print ("Got a request of: %s\n" % self.data)
-        self.request.sendall(bytearray("OK",'utf-8'))
+
+        #decode the data from bytes to string
+        request_str=self.data.decode('utf-8')
+        #split the request string into lines so it can be process parts by part
+        request_lines=request_str.split('\n')
+
+        # Extract the HTTP method and requested URL
+        first_line=request_lines[0].strip().split()
+        http_method=first_line[0] #this is the GET/POST
+        requested_url=first_line[1] # path of the source
+
+        if not self.check_http_method(http_method):
+            return 
+
+        #create the path
+        absolute_path = self.construct_absolute_path(requested_url)
+
+        
+        if absolute_path is None:
+            # The requested URL contains "..", so we've already sent a 404 response
+            return
+
+        # Check if the requested resource exists
+        if os.path.exists(absolute_path):
+            # If it's a directory, look for an "index.html" file
+            if os.path.isdir(absolute_path):
+                index_file_path = os.path.join(absolute_path, "index.html")
+                if os.path.exists(index_file_path):
+                    # Serve the "index.html" file if it exists
+                    self.serve_file(index_file_path)
+                else:
+                    # Set the response status code to 404 Not Found if "index.html" doesn't exist
+                    self.request.sendall(bytearray("HTTP/1.1 404 Not Found\r\n\r\n", 'utf-8'))
+            else:
+                # If it's a file, serve it
+                self.serve_file(absolute_path)
+        else:
+            # If the resource doesn't exist, send a 404 Not Found response
+            self.request.sendall(bytearray("HTTP/1.1 404 Not Found\r\n\r\n", 'utf-8'))
+ 
+    def serve_file(self, file_path):
+        # Determine the content type based on the file extension
+        content_type = "text/plain"
+        if file_path.endswith(".html"):
+            content_type = "text/html"
+        elif file_path.endswith(".css"):
+            content_type = "text/css"
+        
+        with open(file_path, 'rb') as file:
+            file_content = file.read()
+        
+        # Create HTTP response headers with the appropriate fields
+        headers = (
+            f"HTTP/1.1 200 OK\r\n"
+            f"Content-Length: {len(file_content)}\r\n"
+            f"Content-Type: {content_type}\r\n"
+            f"Connection: close\r\n\r\n"
+        )
+        response = headers.encode('utf-8') + file_content
+        self.request.sendall(response)
+    
+    def construct_absolute_path(self, requested_url):
+        # Define the base directory for your web server
+        base_directory="www"
+        # Check for ".." (parent directory references) in the requested URL
+        if ".." in requested_url:
+            # Respond with a 404 Not Found status code if ".." is detected
+            self.request.sendall(bytearray("HTTP/1.1 404 Not Found\r\n\r\n", 'utf-8'))
+            return None
+        #create a path so OS can look up
+        absolute_path = os.path.join(base_directory, requested_url.lstrip('/'))
+        #Normalized the path 
+        absolute_path = os.path.normpath(absolute_path)
+        return absolute_path
+
+
+    def check_http_method(self, http_method):
+        # If the HTTP method is not GET, set the response status code to 405 Method Not Allowed
+        allowed_methods = ['GET', 'POST', 'PUT', 'DELETE']
+        if http_method not in allowed_methods:
+            self.request.sendall(bytearray("HTTP/1.1 405 Method Not Allowed\r\n\r\n", 'utf-8'))
+            return False
+        return True
 
 if __name__ == "__main__":
     HOST, PORT = "localhost", 8080
