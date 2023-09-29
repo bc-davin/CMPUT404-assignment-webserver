@@ -45,6 +45,15 @@ class MyWebServer(socketserver.BaseRequestHandler):
 
         if not self.check_http_method(http_method):
             return 
+        #Append a trailing slash to the requested URL if it doesn't have one
+        if not requested_url.endswith('/'):
+            requested_url += '/'
+
+            # Redirect to the new URL using a 301 status code
+            self.request.sendall(
+                bytearray(f"HTTP/1.1 301 Moved Permanently\r\nLocation: {requested_url}\r\n\r\n", 'utf-8')
+            )
+            return                       
 
         #create the path
         absolute_path = self.construct_absolute_path(requested_url)
@@ -105,13 +114,15 @@ class MyWebServer(socketserver.BaseRequestHandler):
         absolute_path = os.path.join(base_directory, requested_url.lstrip('/'))
         #Normalized the path 
         absolute_path = os.path.normpath(absolute_path)
+        
+        
+
         return absolute_path
 
 
     def check_http_method(self, http_method):
         # If the HTTP method is not GET, set the response status code to 405 Method Not Allowed
-        allowed_methods = ['GET', 'POST', 'PUT', 'DELETE']
-        if http_method not in allowed_methods:
+        if http_method!='GET':
             self.request.sendall(bytearray("HTTP/1.1 405 Method Not Allowed\r\n\r\n", 'utf-8'))
             return False
         return True
